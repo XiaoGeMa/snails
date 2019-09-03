@@ -1,15 +1,14 @@
-;;; snails.el --- A modern, easy-to-expand fuzzy search framework
+;;; snails-backend-everything.el --- everything(windows, es.exe) backend for snails
 
-;; Filename: snails.el
-;; Description: A modern, easy-to-expand fuzzy search framework
-;; Author: Andy Stewart <lazycat.manatee@gmail.com>
-;; Maintainer: Andy Stewart <lazycat.manatee@gmail.com>
+;; Filename: snails-backend-everything.el
+;; Description: Everything backend for snails
+;; Author: Guoqiang Jin <ustczhan@gmail.com>
+;; Maintainer: Guoqiang Jin <ustczhan@gmail.com>
 ;; Copyright (C) 2019, Andy Stewart, all rights reserved.
-;; Created: 2019-07-20 01:21:07
+;; Created: 2019-07-31 12:07:44
 ;; Version: 0.1
-;; Last-Updated: 2019-07-20 01:21:07
-;;           By: Andy Stewart
-;; URL: http://www.emacswiki.org/emacs/download/snails.el
+;; Last-Updated: 2019-07-31 12:07:44
+;;           By: Guoqiang Jin
 ;; Keywords:
 ;; Compatibility: GNU Emacs 26.2
 ;;
@@ -39,33 +38,25 @@
 
 ;;; Commentary:
 ;;
-;; A modern, easy-to-expand fuzzy search framework
+;; Everything backend for snails
 ;;
 
 ;;; Installation:
 ;;
-;; Put snails.el to your load-path.
+;; Put snails-backend-everything.el to your load-path.
 ;; The load-path is usually ~/elisp/.
 ;; It's set in your ~/.emacs like this:
 ;; (add-to-list 'load-path (expand-file-name "~/elisp"))
 ;;
 ;; And the following to your ~/.emacs startup file.
 ;;
-;; (require 'snails)
+;; (require 'snails-backend-everything)
 ;;
 ;; No need more.
 
-;;; Customize:
-;;
-;;
-;;
-;; All of the above can customize by:
-;;      M-x customize-group RET snails RET
-;;
-
 ;;; Change log:
 ;;
-;; 2019/07/20
+;; 2019/07/31
 ;;      * First released.
 ;;
 
@@ -81,18 +72,30 @@
 
 ;;; Require
 (require 'snails-core)
-(require 'snails-backend-buffer)
-(require 'snails-backend-current-buffer)
-(require 'snails-backend-recentf)
-(require 'snails-backend-awesome-tab-group)
-(require 'snails-backend-fd)
-(require 'snails-backend-mdfind)
-(require 'snails-backend-imenu)
-(require 'snails-backend-command)
-(require 'snails-backend-bookmark)
-(require 'snails-backend-rg)
-(require 'snails-backend-everything)
-(require 'snails-backend-projectile)
 
-(provide 'snails)
-;;; snails.el ends here
+;;;Code:
+
+(snails-create-async-backend
+ :name
+ "EVERYTHING"
+
+ :build-command
+ (lambda (input)
+   (when (and (executable-find "es")
+              (> (length input) 5))
+     (list "es" input)))
+
+ :candidate-filter
+ (lambda (candidate-list)
+   (let (candidates)
+     (dolist (candidate candidate-list)
+       (snails-add-candiate 'candidates (snails-wrap-file-icon candidate) candidate))
+     candidates))
+
+ :candiate-do
+ (lambda (candidate)
+   (find-file candidate)))
+
+(provide 'snails-backend-everything)
+
+;;; snails-backend-everything.el ends here

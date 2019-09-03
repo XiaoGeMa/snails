@@ -7,8 +7,8 @@
 ;; Maintainer: Andy Stewart <lazycat.manatee@gmail.com>
 ;; Copyright (C) 2019, Andy Stewart, all rights reserved.
 ;; Created: 2019-05-16 21:26:09
-;; Version: 5.0
-;; Last-Updated: 2019-07-29 00:06:46
+;; Version: 6.5
+;; Last-Updated: 2019-09-01 16:05:13
 ;;           By: Andy Stewart
 ;; URL: http://www.emacswiki.org/emacs/download/snails-core.el
 ;; Keywords:
@@ -68,6 +68,27 @@
 
 ;;; Change log:
 ;;
+;; 2019/09/01
+;;      * We need init `snails-candiate-list' with `snails-backends', otherwise first launch will fail.
+;;
+;; 2019/08/27
+;;      * Make `snails' function support customize search string.
+;;      * Fix search-object condition order.
+;;      * Add new options `snails-default-backends' and `snails-prefix-backends'.
+;;      * Fix issue #29
+;;
+;; 2019/08/25
+;;      * Support search content with input prefix.
+;;
+;; 2019/08/20
+;;      * Call `snails-init-face-with-theme' when user execute snails command.
+;;
+;; 2019/08/08
+;;      * Run snails-mode-hook in `snails-create-input-buffer', evil users should be hook evil code after `snails-mode-hook'.
+;;
+;; 2019/07/29
+;;      * Make `snails-mode-hook' works, sorry i forgot add `run-hooks'.
+;;
 ;; 2019/07/28
 ;;      * Optimize performance: fixed rendering every 100 milliseconds, instead of rendering once backend return candidates, avoiding rendering computation waste.
 ;;      * `snails-select-line-number' is not need anymore, `snails-select-line-overlay' is enough.
@@ -79,7 +100,7 @@
 ;;      * Foucs out to hide snails frame on Mac.
 ;;      * Snails will search symbol around point when you press prefix key before call snails.
 ;;      * Make async process buffer's name starts with " *" to hide process buffer tab when search.
-;;      * Make `snails' support backends and search-symbol arguments.
+;;      * Make `snails' support backends and search-object arguments.
 ;;      * Add new command `snails-search-point'.
 ;;      * Add `snails-flash-line'.
 ;;      * Improve `snails-sort-candidates'
@@ -168,6 +189,22 @@
   :type 'integer
   :group 'snails)
 
+(defcustom snails-default-backends
+  '(snails-backend-awesome-tab-group snails-backend-buffer snails-backend-recentf snails-backend-bookmark)
+  "The default backend"
+  :type 'cons
+  :group 'snails)
+
+(defcustom snails-prefix-backends
+  '((">" '(snails-backend-command))
+    ("@" '(snails-backend-imenu))
+    ("#" '(snails-backend-current-buffer))
+    ("!" '(snails-backend-rg))
+    ("?" '(snails-backend-projectile snails-backend-fd snails-backend-mdfind snails-backend-everything)))
+  "The prefix/backends pair."
+  :type 'cons
+  :group 'snails)
+
 (defface snails-header-line-face
   '((t (:inherit font-lock-function-name-face :underline t :height 1.2)))
   "Face for header line"
@@ -230,11 +267,12 @@ need to set face attribute, such as foreground and background."
 (defvar snails-header-line-overlays nil
   "The list overlay to render backend header line.")
 
-(defvar snails-default-backends nil
-  "Contain default backends.")
-
 (defvar snails-backends nil
   "Contain the real backends use in `snails'.")
+
+(defvar snails-search-backends nil
+  "Search backends, default is nil will search with input prefix.
+Or backends pass from function `snails'.")
 
 (defvar snails-input-ticker 0
   "Input ticker to unique search request.
@@ -253,8 +291,8 @@ use for find candidate position to change select line.")
   "The variable use for check `fuz' library is load.
 
 Init status with `uncheck'.
-If `fuz' library is not found, set with `uncheck'.
-If `fuz' library has load, set with `check'.")
+If `fuz' library is not found, set with `unload'.
+If `fuz' library has load, set with `load'.")
 
 (defvar snails-project-root-dir nil
   "The project dir when start snails.")
@@ -296,8 +334,14 @@ If `fuz' library has load, set with `check'.")
   ;; Injection keymap.
   (use-local-map snails-mode-map))
 
-(defun snails (&optional backends search-symbol)
-  "Start snails to search."
+(defun snails (&optional backends search-object)
+  "Start snails to search.
+
+`backends' is list of backend, default is nil, you can customize your own search backend list.
+
+`search-object', default is nil, nothing fill in input buffer,
+you can set `search-object' with t to search symbol around point,
+or set it with any string you want."
   (interactive)
   (if (display-graphic-p)
       (if (and snails-frame
@@ -305,15 +349,17 @@ If `fuz' library has load, set with `check'.")
           ;; Quit snails if it has opened.
           (snails-quit)
 
-        ;; If `backends' is empty list, use `snails-default-backends'.
-        (if (and (listp backends)
-                 (> (length backends) 0))
-            (setq snails-backends backends)
-          (setq snails-backends snails-default-backends))
+        ;; Set `snails-search-backends' if argument backends is set.
+        (when (and (listp backends)
+                   (> (length backends) 0))
+          (setq snails-search-backends backends))
 
         ;; Record buffer before start snails.
         (setq snails-start-buffer (current-buffer))
         (setq snails-start-buffer-lines (line-number-at-pos (point-max)))
+
+        ;; Init face with theme.
+        (snails-init-face-with-theme)
 
         ;; Create input and content buffer.
         (snails-create-input-buffer)
@@ -322,24 +368,26 @@ If `fuz' library has load, set with `check'.")
         ;; Create popup frame to show search result.
         (snails-create-frame)
 
-        ;; First search.
-        (snails-first-search search-symbol))
+        ;; Search.
+        (cond
+         ;; Search with customize string when `search-object' is string.
+         ((and (stringp search-object)
+               (not (string-empty-p search-object)))
+          (snails-search search-object))
+         ;; Search symbol around point when `search-object' is t.
+         (search-object
+          (run-with-timer
+           0.05 nil
+           (lambda ()
+             (let ((search-string (or (with-current-buffer snails-start-buffer
+                                        (snails-pointer-string)) "")))
+               (with-current-buffer snails-input-buffer
+                 (insert search-string))
+               (snails-search search-string)))))
+         ;; Just launch with empty string when `search-object' is nil.
+         (t
+          (snails-search ""))))
     (message "Snails render candidates in new frame that only can be run in a graphical environment.")))
-
-(defun snails-first-search (search-symbol)
-  "First search need delay, make snails frame display as soon as possible."
-  (run-with-timer
-   0.05 nil
-   (lambda ()
-     (if search-symbol
-         ;; Search symbol around point.
-         (let ((search-string (or (with-current-buffer snails-start-buffer
-                                    (snails-pointer-string)) "")))
-           (with-current-buffer snails-input-buffer
-             (insert search-string))
-           (snails-search search-string))
-       ;; Send empty search content to backends.
-       (snails-search "")))))
 
 (defun snails-search-point ()
   "Search symbol at point"
@@ -405,6 +453,7 @@ If `fuz' library has load, set with `check'.")
   (setq snails-need-render nil)
   (setq snails-select-backend-name nil)
   (setq snails-select-candidate-offset nil)
+  (setq snails-search-backends nil)
   ;; Kill all subprocess and process buffers.
   (maphash
    (lambda (name process)
@@ -422,8 +471,7 @@ If `fuz' library has load, set with `check'.")
     (erase-buffer)
     ;; Switch snails mode.
     (snails-mode)
-    (if (fboundp 'evil-insert)
-      (evil-insert 1))
+    (run-hooks 'snails-mode-hook)
     ;; Set input buffer face.
     (buffer-face-set 'snails-input-buffer-face)
     ;; Disable hl-line, header-line and mode-line in input buffer.
@@ -520,8 +568,7 @@ If `fuz' library has load, set with `check'.")
 
       ;; Focus out to hide snails frame on Mac.
       (when (featurep 'cocoa)
-        (add-hook 'focus-out-hook 'snails-quit))
-      )
+        (add-hook 'focus-out-hook 'snails-quit)))
 
     ;; Set active flag, use for advice-add detect.
     (setq snails-frame-active-p t)
@@ -533,12 +580,49 @@ If `fuz' library has load, set with `check'.")
 
 (defun snails-search (input)
   "Search input with backends."
-  ;; Update input ticker.
-  (setq snails-input-ticker (+ snails-input-ticker 1))
+  (let ((search-content input))
+    ;; Update input ticker.
+    (setq snails-input-ticker (+ snails-input-ticker 1))
 
-  ;; Clean candidate list.
-  (setq snails-candiate-list (make-list (length snails-backends) nil))
+    ;; Set backends.
+    (if snails-search-backends
+        ;; Search special backends if `snails-search-backends' is not nil.
+        ;; Snails won't filter with prefix in this situation.
+        (setq snails-backends snails-search-backends)
 
+      ;; Try search backends with prefix if `snails-search-backends' is nil.
+      (let ((prefix (snails-input-prefix input))
+            match-prefix)
+
+        ;; Search prefix backend if match prefix in `snails-prefix-backends'.
+        (catch 'search-prefix-backend
+          (dolist (prefix-backend snails-prefix-backends)
+            (when (equal prefix (car prefix-backend))
+              (setq snails-backends (eval (cadr prefix-backend)))
+              (setq search-content (substring input 1))
+              (setq match-prefix t)
+              (throw 'search-prefix-backend nil)
+              )))
+
+        ;; Search default backends if not match any prefix in `snails-prefix-backends'.
+        (unless match-prefix
+          (setq snails-backends snails-default-backends))))
+
+    ;; Init `snails-candiate-list' with `snails-backends'.
+    (setq snails-candiate-list (make-list (length snails-backends) nil))
+
+    ;; Search.
+    (snails-input-search search-content)))
+
+(defun snails-input-prefix (input)
+  "Get input prefix, return \"\" if input is empty."
+  (cond ((equal (length input) 0)
+         "")
+        (t
+         (substring input 0 1))))
+
+(defun snails-input-search (input)
+  "Search input with backends inf `snails-backends'."
   ;; Call all backends with new input.
   (dolist (backend snails-backends)
     (let ((search-func (cdr (assoc "search" (eval backend)))))
@@ -562,8 +646,9 @@ If `fuz' library has load, set with `check'.")
 
 (defun snails-update-list-by-index (list n val)
   "Update candidates with backend index."
-  (nconc (cl-subseq list 0 n)
-         (cons val (nthcdr (1+ n) list))))
+  (when list
+    (nconc (cl-subseq list 0 n)
+           (cons val (nthcdr (1+ n) list)))))
 
 (defun snails-get-backend-names ()
   "Get all backend names."
@@ -804,9 +889,6 @@ influence of C1 on the result."
     (set-face-attribute 'snails-content-buffer-face nil
                         :background content-bg-color)
     ))
-
-(when (not (featurep 'snails))
-  (snails-init-face-with-theme))
 
 (defun snails-jump-to-next-item ()
   "Select next candidate item."

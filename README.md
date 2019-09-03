@@ -17,27 +17,65 @@ regardless of how complex the search framework is.
 ```
 
 ## Usage
-```M-x snails``` or ```M-x snails-search-point```
+```M-x snails``` to launch snails
+
+* Default snails search input in backends: awesome-tab group, buffer name, recently files or bookmark
+* Search command if prefix start with >
+* Search variable or function define if prefix start with @
+* Search current buffer content if prefix start with #
+* Search project file content if prefix start with !
+* Search file if prefix start with ?
+* Enter "!color-rg@/Users/andy/color-rg" to search ```color-rg``` keywrod in directory ```/Users/andy/color-rg``` recursively.
+
+You can use ```M-x snails-search-point``` to launch snails with symbol around point.
 
 <img src="./images/screenshot.png">
 
-If you're a big fan of [Ivy](https://github.com/abo-abo/swiper#ivy), you can use a search backend separately in the following way:
+You can customize ```snails-default-backends``` and ```snails-prefix-backends``` with your own prefix rule.
 
-### Just search buffer
+### Use Snails With Custom Backends
+You can also customize the search backends you want to use! (similar to [Ivy](https://github.com/abo-abo/swiper#ivy))
+
+You can either write your own backend (see below) or assemble all available backends like the following:
+
+#### Just search opened buffers (use snails with 1 backend only!)
 ```elisp
 (snails '(snails-backend-buffer))
 ```
 
-### Search with customized backends
+#### Search opened buffers and recently opened files (use snails with 2 backends!)
 ```elisp
-(snails '(snails-backend-buffer snails-backend-buffer))
+(snails '(snails-backend-buffer snails-backend-recentf))
 ```
 
-### Search symbol with customized backends.
+#### Search symbol at point of opened buffers and recently opened files (use snails with 2 backends!)
 ```elisp
-(snails '(snails-backend-buffer snails-backend-buffer) t)
+(snails '(snails-backend-buffer snails-backend-recentf) t)
 ```
 
+#### Search customize string ```hello```
+```elisp
+(snails nil "hello")
+```
+
+When you customize the search backends, snails won't filter search result with input prefix.
+
+## Currently Available Backends
+
+| Backend                          | Description                                                            |
+| :--------                        | :----                                                                  |
+| snails-backend-awesome-tab-group | Switch group of awesome-tab, need install plugin ```awesome-tab```     |
+| snails-backend-buffer            | Search buffer list                                                     |
+| snails-backend-recentf           | Search recently files                                                  |
+| snails-backend-bookmark          | Switch bookmark                                                        |
+| snails-backend-imenu             | Jump to function or variable definition                                |
+| snails-backend-current-buffer    | Search current buffer content                                          |
+| snails-backend-rg                | Use ripgrep search content in current project                          |
+| snails-backend-projectile        | Search files in current project, need install plugin ```projectitle``` |
+| snails-backend-fd                | Use fd search files in current project                                 |
+| snails-backend-mdfind            | Use mdfind search files in local disk, only Mac                        |
+| snails-backend-everything        | Use everything search files in local disk, only Windows                |
+| snails-backend-command           | Search command                                                         |
 
 ## Fuzz match
 Snails use normal match algorithm default.
@@ -50,7 +88,6 @@ To install fuz.el , please follow below steps:
 3. Build fuz-core.so: ```cargo build --release```
 4. Rename ```target/release/libfuz_core.so``` or ```target/release/libfuz_core.dylib``` to ```fuz-core.so```
 5. Make sure ```fuz-core.so``` and all files in https://github.com/cireu/fuz.el add to your ```load-path```
-
 
 ## Keymap
 
@@ -70,20 +107,6 @@ To install fuz.el , please follow below steps:
 | C-g         | Quit snails               |
 | ESC ESC ESC | Quit snails               |
 | M-h         | Quit snails               |
-
-## Search Backend
-
-| Backend                          | Description                                     |
-| :--------                        | :----                                           |
-| snails-backend-awesome-tab-group | Switch group of awesome-tab                     |
-| snails-backend-buffer            | Search buffer list                              |
-| snails-backend-recentf           | Search recently files                           |
-| snails-backend-bookmark          | Switch bookmark                                 |
-| snails-backend-imenu             | Jump to function or variable definition         |
-| snails-backend-current-buffer    | Search current buffer content                   |
-| snails-backend-rg                | Use ripgrep search content in current project   |
-| snails-backend-fd                | Use fd search files in current project          |
-| snails-backend-mdfind            | Use mdfind search files in local disk, only Mac |
 
 ## Architecture Design of Snails
 
@@ -224,3 +247,7 @@ But the reason why Snails doesn't show highlights is because rendering colors ca
 The biggest goal of Snails project is fast, although I know that highlighting is very meaningful, so I am willing to sacrifice this feature for fluency.
 
 If you know how to keep fluency when adding highlights, please contribute your patch. ;)
+
+### Manage Evil state
+I personally never use the evil plugin, if you want manage evil state in input buffer of snails.
+You should customize your own code with `snails-mode-hook'
